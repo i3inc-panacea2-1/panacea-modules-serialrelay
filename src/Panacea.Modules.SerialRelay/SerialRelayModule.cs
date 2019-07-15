@@ -12,45 +12,52 @@ namespace Panacea.Modules.SerialRelay
     {
         private string portName;
         const string DEVICE_NAME = "USB-SERIAL CH340 ";
-        const string ON  = "A00101A2";
+        const string ON = "A00101A2";
         const string OFF = "A00100A1";
+        SerialPort _sp;
         public SerialRelayModule()
         {
         }
-        private void SetupPortName()
+        private Task<bool> SetupPortNameAsync()
         {
-            using (var searcher = new ManagementObjectSearcher(@"Select * From Win32_PnPEntity"))
+            return Task.Run(() =>
             {
-                string[] portnames = SerialPort.GetPortNames();
-                var ports = searcher.Get().Cast<ManagementBaseObject>().ToList();
-                var dev = ports.FirstOrDefault(p => p["Name"]?.ToString().StartsWith(DEVICE_NAME) == true);
-                if (dev != null)
+                using (var searcher = new ManagementObjectSearcher(@"Select * From Win32_PnPEntity"))
                 {
-                    Debug.WriteLine(dev["Name"]);
-                    portName = dev["Name"].ToString().Substring(DEVICE_NAME.Length + 1, dev["Name"].ToString().Length - DEVICE_NAME.Length - 2);
-                }
-            }
-        }
-        public Task<bool> SetStatusAsync(bool on, int port)
-        {
-            SetupPortName();
-            if (portName != null)
-            {
-                using (var sp = new SerialPort(portName))
-                {
-                    if (sp == null)
+                    string[] portnames = SerialPort.GetPortNames();
+                    var ports = searcher.Get().Cast<ManagementBaseObject>().ToList();
+                    var dev = ports.FirstOrDefault(p => p["Name"]?.ToString().StartsWith(DEVICE_NAME) == true);
+                    if (dev != null)
                     {
-                        return Task.FromResult(false);
+                        Debug.WriteLine(dev["Name"]);
+                        portName = dev["Name"].ToString().Substring(DEVICE_NAME.Length + 1, dev["Name"].ToString().Length - DEVICE_NAME.Length - 2);
+                        _sp = new SerialPort(portName);
+                        _sp.Open();
+                        return true;
                     }
-                    sp.Open();
+                }
+                return false;
+            });
+
+        }
+        public async Task<bool> SetStatusAsync(bool on, int port)
+        {
+            if (portName == null || _sp?.IsOpen != true)
+            {
+                if (!await SetupPortNameAsync())
+                    return false;
+            }
+            else
+            {
+                return await Task.Run(() =>
+                {
                     var hex = on ? ON : OFF;
                     var bytes = StringToByteArray(hex);
-                    sp.Write(bytes, 0, bytes.Length);
-                    sp.Close();
-                    return Task.FromResult(true);
-                }
+                    _sp.Write(bytes, 0, bytes.Length);
+                    return true;
+                });
             }
-            return Task.FromResult(false);
+            return false;
         }
 
         private byte[] StringToByteArray(string hex)
