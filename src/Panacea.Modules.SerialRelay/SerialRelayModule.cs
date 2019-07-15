@@ -16,12 +16,15 @@ namespace Panacea.Modules.SerialRelay
         const string OFF = "A00100A1";
         public SerialRelayModule()
         {
+        }
+        private void SetupPortName()
+        {
             using (var searcher = new ManagementObjectSearcher(@"Select * From Win32_PnPEntity"))
             {
                 string[] portnames = SerialPort.GetPortNames();
                 var ports = searcher.Get().Cast<ManagementBaseObject>().ToList();
                 var dev = ports.FirstOrDefault(p => p["Name"]?.ToString().StartsWith(DEVICE_NAME) == true);
-                if(dev!= null)
+                if (dev != null)
                 {
                     Debug.WriteLine(dev["Name"]);
                     portName = dev["Name"].ToString().Substring(DEVICE_NAME.Length + 1, dev["Name"].ToString().Length - DEVICE_NAME.Length - 2);
@@ -30,19 +33,24 @@ namespace Panacea.Modules.SerialRelay
         }
         public Task<bool> SetStatusAsync(bool on, int port)
         {
-            using (var sp = new SerialPort(portName))
+            SetupPortName();
+            if (portName != null)
             {
-                if (sp == null)
+                using (var sp = new SerialPort(portName))
                 {
-                    return Task.FromResult(false);
+                    if (sp == null)
+                    {
+                        return Task.FromResult(false);
+                    }
+                    sp.Open();
+                    var hex = on ? ON : OFF;
+                    var bytes = StringToByteArray(hex);
+                    sp.Write(bytes, 0, bytes.Length);
+                    sp.Close();
+                    return Task.FromResult(true);
                 }
-                sp.Open();
-                var hex = on ? ON : OFF;
-                var bytes = StringToByteArray(hex);
-                sp.Write(bytes, 0, bytes.Length);
-                sp.Close();
-                return Task.FromResult(true);
             }
+            return Task.FromResult(false);
         }
 
         private byte[] StringToByteArray(string hex)
